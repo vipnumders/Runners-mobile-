@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>2D Stat Runner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body { background: #181c24; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
+    #game-canvas { display: block; background: #23283a; margin: 0 auto; box-shadow: 0 4px 32px #0008; border-radius: 16px; }
+    .ui-overlay {
+      position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
+      pointer-events: none; z-index: 10;
+    }
+    .ui-overlay > * { pointer-events: auto; }
+    .hud {
+      position: absolute; top: 0; left: 0; width: 100vw; display: flex; justify-content: space-between; align-items: center;
+      padding: 20px 36px; pointer-events: auto;
+      background: rgba(35,40,58,0.18); backdrop-filter: blur(8px);
+      box-shadow: 0 2px 16px #0ff2;
+    }
+    .hud .health, .hud .statpoints {
+      background: rgba(35,40,58,0.85); color: #0ff; border-radius: 12px; padding: 12px 28px;
+      font-size: 1.3em; margin-right: 18px; font-weight: 700; display: inline-flex; align-items: center; gap: 10px;
+      box-shadow: 0 2px 8px #0ff4;
+    }
+    .hud .statpoints { color: #ffd700; }
+    .hud .stats {
+      background: rgba(35,40,58,0.85); color: #fff; border-radius: 12px; padding: 12px 28px;
+      font-size: 1.15em; margin-left: 18px; font-weight: 600; display: inline-flex; align-items: center; gap: 16px;
+      box-shadow: 0 2px 8px #0ff2;
+    }
+    .stat-alloc {
+      position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+      background: rgba(35,40,58,0.95); border-radius: 18px; box-shadow: 0 8px 32px #0ff8;
+      padding: 32px 36px; text-align: center; min-width: 340px;
+      display: none; flex-direction: column; gap: 16px;
+      pointer-events: auto;
+      backdrop-filter: blur(10px);
+      animation: fadeIn 0.5s;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.95);} to { opacity: 1; transform: scale(1);} }
+    .stat-alloc h2 { color: #0ff; margin-bottom: 16px; letter-spacing: 1px; }
+    .stat-alloc .stat-row { display: flex; align-items: center; justify-content: space-between; margin: 12px 0; }
+    .stat-alloc .stat-label { color: #fff; font-size: 1.15em; font-weight: 600; }
+    .stat-alloc .stat-value { color: #ffd700; font-size: 1.15em; margin: 0 16px; font-weight: 700; }
+    .stat-alloc button {
+      background: linear-gradient(90deg,#0ff,#00bcd4); color: #23283a; border: none; border-radius: 10px;
+      font-size: 1.1em; padding: 7px 22px; margin: 0 6px; cursor: pointer; font-weight: 700;
+      transition: background 0.2s, transform 0.1s;
+      box-shadow: 0 2px 8px #0ff4;
+    }
+    .stat-alloc button:disabled { background: #444; color: #aaa; cursor: not-allowed; }
+    .stat-alloc .close-btn {
+      margin-top: 22px; background: #23283a; color: #0ff; border: 1px solid #0ff;
+      box-shadow: none;
+    }
+    .stat-alloc .close-btn:hover { background: #0ff; color: #23283a; }
+    .mod-menu {
+      position: absolute;
+      top: 80px;
+      right: 40px;
+      background: #23283a;
+      color: #fff;
+      padding: 24px 28px;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px #0ff6;
+      display: none;
+      z-index: 20;
+      min-width: 260px;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    .mod-menu h3 {
+      margin-top: 0;
+      margin-bottom: 18px;
+      color: #0ff;
+      font-size: 1.3em;
+      letter-spacing: 1px;
+    }
+    .mod-btn {
+      background: linear-gradient(90deg,#0ff,#00bcd4);
+      color: #23283a;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.08em;
+      padding: 8px 22px;
+      margin: 0 6px 8px 0;
+      cursor: pointer;
+      font-weight: 700;
+      box-shadow: 0 2px 8px #0ff4;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .mod-btn:hover {
+      background: #0ff;
+      color: #23283a;
+      transform: scale(1.07);
+    }
+    .mod-btn.close-btn {
+      background: #23283a;
+      color: #0ff;
+      border: 1px solid #0ff;
+      margin-top: 18px;
+    }
+    .mod-btn.close-btn:hover {
+      background: #0ff;
+      color: #23283a;
+    }
+    @media (max-width: 600px) {
+      .hud { padding: 10px 2vw; }
+      .stat-alloc { min-width: 0; padding: 16px 4vw; }
+    }
+  </style>
+</head>
+<body> 
+  <canvas id="game-canvas" width="900" height="500"></canvas>
+  <div class="ui-overlay">
+    <div class="hud">
+      <span class="health" id="health-ui">❤️ 100</span>
+      <span class="statpoints" id="statpoints-ui">⭐ 0</span>
+      <span class="stats" id="stats-ui">Health: 100 | Speed: 5 | Attack: 10</span>
+    </div>
+    <div class="stat-alloc" id="stat-alloc">
+      <h2>Allocate Stat Points</h2>
+      <div class="stat-row">
+        <span class="stat-label">Health</span>
+        <button id="add-health">+</button>
+        <span class="stat-value" id="health-stat">100</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Speed</span>
+        <button id="add-speed">+</button>
+        <span class="stat-value" id="speed-stat">5</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Attack</span>
+        <button id="add-attack">+</button>
+        <span class="stat-value" id="attack-stat">10</span>
+      </div>
+      <button class="close-btn" id="open-alloc">Open Stat Menu (C)</button>
+      <button class="close-btn" id="close-alloc">Close</button>
+    </div>
+    <div class="mod-menu" id="mod-menu">
+      <h3>Mods & Multiplayer</h3>
+      <div style="margin-bottom:12px;">
+        <button class="mod-btn" id="mod-doublejump" onclick="tryUnlockMod(doubleJumpMod, 2)">Enable Double Jump</button>
+        <span style="font-size:0.95em;color:#0ff;margin-left:8px;">(Unlocks at Level 2)</span>
+      </div>
+      <div style="margin-bottom:12px;">
+        <button class="mod-btn" id="mod-multiplayer" onclick="toggleMultiplayer()">Toggle Multiplayer</button>
+        <span style="font-size:0.95em;color:#ffd700;margin-left:8px;">(Always unlocked)</span>
+      </div>
+      <div style="margin-bottom:12px;">
+        <button class="mod-btn" id="mod-superspeed" onclick="tryUnlockMod(superSpeedMod, 3)">Enable Super Speed</button>
+        <span style="font-size:0.95em;color:#0ff;margin-left:8px;">(Unlocks at Level 3)</span>
+      </div>
+      <div style="margin-bottom:12px;">
+        <button class="mod-btn" id="mod-lowgravity" onclick="tryUnlockMod(lowGravityMod, 4)">Enable Low Gravity</button>
+        <span style="font-size:0.95em;color:#0ff;margin-left:8px;">(Unlocks at Level 4)</span>
+      </div>
+      <div style="margin-bottom:12px;">
+        <button class="mod-btn" id="mod-invincible" onclick="tryUnlockMod(invincibleMod, 5)">Enable Invincibility</button>
+        <span style="font-size:0.95em;color:#ffd700;margin-left:8px;">(Unlocks at Level 5)</span>
+      </div>
+      <button class="mod-btn close-btn" onclick="document.getElementById('mod-menu').style.display='none'">Close</button>
+    </div>
+  </div>
+  <button style="position:absolute;top:20px;right:20px;z-index:30;" onclick="document.getElementById('mod-menu').style.display='block'">Mods/Menu</button>
+  <div id="tutorial" style="position:absolute;top:0;left:0;width:100vw;height:100vh;background:rgba(24,28,36,0.95);color:#fff;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:1.3em;">
+    <h2>Welcome to Runners!</h2>
+    <ul style="text-align:left;">
+      <li>Move: <b>Arrow keys</b> or <b>WASD</b></li>
+      <li>Jump: <b>Space</b> or <b>Arrow Up</b></li>
+      <li>Open Stat Menu: <b>S</b></li>
+      <li>Restart: <b>R</b></li>
+      <li>Multiplayer: <b>I/J/L</b> for Player 2</li>
+      <li>Try Mods from the Mods/Menu button!</li>
+    </ul>
+    <button onclick="document.getElementById('tutorial').style.display='none'" style="margin-top:24px;padding:12px 32px;font-size:1.1em;">Start Game</button>
+  </div>
+  <script>
+let multiplayer = false;
+// --- Game State ---
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const healthUI = document.getElementById('health-ui');
+const statpointsUI = document.getElementById('statpoints-ui');
+const statsUI = document.getElementById('stats-ui');
+const statAlloc = document.getElementById('stat-alloc');
+const addHealthBtn = document.getElementById('add-health');
+const addSpeedBtn = document.getElementById('add-speed');
+const addAttackBtn = document.getElementById('add-attack');
+const closeAllocBtn = document.getElementById('close-alloc');
+const openAllocBtn = document.getElementById('open-alloc');
+const healthStat = document.getElementById('health-stat');
+const speedStat = document.getElementById('speed-stat');
+const attackStat = document.getElementById('attack-stat');
+
+// Player and stats
+let player = {
+  x: 100, y: 400, w: 40, h: 60,
+  vx: 0, vy: 0,
+  speed: 5,
+  jumpPower: 13,
+  onGround: false,
+  color: '#0ff',
+  maxHealth: 100,
+  health: 100,
+  attack: 10,
+  statPoints: 0,
+  jumpCount: 0,
+  maxJumps: 1
+};
+let player2 = {
+  x: 140, y: 400, w: 40, h: 60,
+  vx: 0, vy: 0,
+  speed: 5,
+  jumpPower: 13,
+  onGround: false,
+  color: '#ffd700',
+  maxHealth: 100,
+  health: 100,
+  attack: 10,
+  statPoints: 0,
+  jumpCount: 0,
+  maxJumps: 1
+};
+let stats = {
+  health: 100,
+  speed: 5,
+  attack: 10
+};
+let game = {
+  obstacles: [],
+  pickups: [],
+  score: 0,
+  level: 1,
+  frame: 0,
+  statInterval: 1000,
+  nextStat: 1000,
+  running: true
+};
+
+let gravity = 0.7; // default gravity
+
+// Controls
+let keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  // Open stat allocation with S
+  if (e.key === 's' || e.key === 'S') {
+    if (player.statPoints > 0) statAlloc.style.display = 'flex';
+  }
+  // --- DEFAULT SINGLE JUMP LOGIC ---
+  if (
+    !doubleJumpEnabled &&
+    (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w') &&
+    player.onGround
+  ) {
+    player.vy = -player.jumpPower;
+    player.onGround = false;
+  }
+  // Restart game
+  if (!game.running && (e.key === 'r' || e.key === 'R')) restart();
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+closeAllocBtn.onclick = () => statAlloc.style.display = 'none';
+openAllocBtn.onclick = () => statAlloc.style.display = 'flex';
+
+// Stat allocation
+function updateStatUI() {
+  healthStat.textContent = stats.health;
+  speedStat.textContent = stats.speed;
+  attackStat.textContent = stats.attack;
+  healthUI.textContent = `❤️ ${player.health}`;
+  statpointsUI.textContent = `⭐ ${player.statPoints}`;
+  statsUI.textContent = `Health: ${stats.health} | Speed: ${stats.speed} | Attack: ${stats.attack}`;
+}
+addHealthBtn.onclick = () => {
+  if (player.statPoints > 0) {
+    stats.health += 10;
+    player.maxHealth += 10;
+    player.health += 10;
+    player.statPoints--;
+    updateStatUI();
+  }
+};
+addSpeedBtn.onclick = () => {
+  if (player.statPoints > 0) {
+    stats.speed += 3;
+    player.speed += 3;
+    player.statPoints--;
+    updateStatUI();
+  }
+};
+addAttackBtn.onclick = () => {
+  if (player.statPoints > 0) {
+    stats.attack += 2;
+    player.attack += 2;
+    player.statPoints--;
+    updateStatUI();
+  }
+};
+
+// --- Mods System ---
+let mods = [];
+let doubleJumpEnabled = false;
+let superSpeedEnabled = false;
+let lowGravityEnabled = false;
+let invincibleEnabled = false;
+
+function loadMod(modFn) {
+  // Prevent duplicate mods
+  if (modFn === doubleJumpMod && doubleJumpEnabled) return;
+  if (modFn === superSpeedMod && superSpeedEnabled) return;
+  if (modFn === lowGravityMod && lowGravityEnabled) return;
+  if (modFn === invincibleMod && invincibleEnabled) return;
+  mods.push(modFn);
+  modFn({player, player2, game, stats});
+}
+function toggleMultiplayer() {
+  multiplayer = !multiplayer;
+  document.getElementById('mod-menu').style.display = 'none';
+}
+
+// Double Jump Mod
+let doubleJumpHandlerAttached = false;
+function doubleJumpMod({player, player2}) {
+  doubleJumpEnabled = true;
+  player.jumpCount = 0;
+  player.maxJumps = 2;
+  player2.jumpCount = 0;
+  player2.maxJumps = 2;
+  if (!doubleJumpHandlerAttached) {
+    document.addEventListener('keydown', doubleJumpHandler);
+    doubleJumpHandlerAttached = true;
+  }
+}
+function doubleJumpHandler(e) {
+  // Player 1
+  if (
+    (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w')
+    && player.jumpCount < player.maxJumps
+  ) {
+    if (player.onGround || player.jumpCount < player.maxJumps) {
+      player.vy = -player.jumpPower;
+      player.onGround = false;
+      player.jumpCount++;
+    }
+  }
+  // Player 2
+  if (
+    (e.key === 'i' || e.key === 'Enter')
+    && multiplayer && player2.jumpCount < player2.maxJumps
+  ) {
+    if (player2.onGround || player2.jumpCount < player2.maxJumps) {
+      player2.vy = -player2.jumpPower;
+      player2.onGround = false;
+      player2.jumpCount++;
+    }
+  }
+}
+
+// Super Speed Mod
+function superSpeedMod({player, player2}) {
+  superSpeedEnabled = true;
+  player.speed += 7;
+  player2.speed += 7;
+  stats.speed += 7;
+  alert("Super Speed enabled!");
+}
+
+// Low Gravity Mod
+function lowGravityMod({player, player2, game, stats}) {
+  lowGravityEnabled = true;
+  gravity = 0.3;
+  alert("Low Gravity enabled!");
+}
+
+// Invincibility Mod (NEW)
+function invincibleMod({player, player2, game, stats}) {
+  invincibleEnabled = true;
+  alert("Invincibility enabled! You can't take damage.");
+}
+
+// --- Lock system for mods ---
+const modLocks = [
+  { id: "mod-doublejump", mod: doubleJumpMod, level: 2 },
+  { id: "mod-superspeed", mod: superSpeedMod, level: 3 },
+  { id: "mod-lowgravity", mod: lowGravityMod, level: 4 },
+  { id: "mod-invincible", mod: invincibleMod, level: 5 }
+];
+
+function updateModLocks() {
+  modLocks.forEach(lock => {
+    const btn = document.getElementById(lock.id);
+    if (game.level >= lock.level) {
+      btn.disabled = false;
+      btn.style.opacity = "1";
+      btn.title = "";
+    } else {
+      btn.disabled = true;
+      btn.style.opacity = "0.5";
+      btn.title = `Unlocks at Level ${lock.level}`;
+    }
+  });
+}
+
+// Call this after every level up and at game start
+// --- Game Loop ---
+function resetPlayer() {
+  player.x = 100; player.y = 400; player.vx = 0; player.vy = 0;
+  player.health = player.maxHealth; player.onGround = false;
+  player.jumpCount = 0; player.maxJumps = doubleJumpEnabled ? 2 : 1;
+  player2.x = 140; player2.y = 400; player2.vx = 0; player2.vy = 0;
+  player2.health = player2.maxHealth; player2.onGround = false;
+  player2.jumpCount = 0; player2.maxJumps = doubleJumpEnabled ? 2 : 1;
+}
+function spawnObstacle() {
+  const type = Math.random() < 0.5 ? 'static' : 'moving';
+  const w = 40 + Math.random()*30, h = 40 + Math.random()*30;
+  const y = 460 - h;
+  let obs = {
+    x: 900 + Math.random()*200, y, w, h,
+    type,
+    vy: type==='moving' ? (Math.random()<0.5?-2:2) : 0,
+    color: type==='moving' ? '#ff0066' : '#ffd700'
+  };
+  game.obstacles.push(obs);
+}
+function spawnPickup() {
+  let p = {
+    x: 900 + Math.random()*200, y: 420, w: 30, h: 30, color: '#0f0', type: 'health'
+  };
+  game.pickups.push(p);
+}
+function updateObstacles() {
+  for (let obs of game.obstacles) {
+    obs.x -= stats.speed + game.level*0.5;
+    if (obs.type==='moving') {
+      obs.y += obs.vy;
+      if (obs.y < 320 || obs.y > 460-obs.h) obs.vy *= -1;
+    }
+  }
+  game.obstacles = game.obstacles.filter(obs => obs.x + obs.w > 0);
+}
+function updatePickups() {
+  for (let p of game.pickups) {
+    p.x -= stats.speed + game.level*0.5;
+  }
+  game.pickups = game.pickups.filter(p => p.x + p.w > 0);
+}
+function checkCollisions() {
+  // Obstacles
+  for (let obs of game.obstacles) {
+    if (
+      player.x < obs.x + obs.w && player.x + player.w > obs.x &&
+      player.y < obs.y + obs.h && player.y + player.h > obs.y
+    ) {
+      if (!invincibleEnabled) {
+        player.health -= 15;
+        player.x -= 30; // knockback
+        if (player.health < 0) player.health = 0;
+        healthUI.style.background = '#ff0066';
+        setTimeout(()=>healthUI.style.background='', 200);
+      }
+    }
+    if (multiplayer) {
+      if (
+        player2.x < obs.x + obs.w && player2.x + player2.w > obs.x &&
+        player2.y < obs.y + obs.h && player2.y + player2.h > obs.y
+      ) {
+        if (!invincibleEnabled) {
+          player2.health -= 15;
+          player2.x -= 30;
+          if (player2.health < 0) player2.health = 0;
+        }
+      }
+    }
+  }
+  // Pickups
+  for (let i=0; i<game.pickups.length; ++i) {
+    let p = game.pickups[i];
+    if (player.x < p.x + p.w && player.x + player.w > p.x && player.y < p.y + p.h && player.y + player.h > p.y) {
+      if (p.type==='health') {
+        player.health = Math.min(player.maxHealth, player.health+25);
+        game.pickups.splice(i,1); i--;
+        healthUI.style.background = '#0f0';
+        setTimeout(()=>healthUI.style.background='', 200);
+      }
+    }
+    if (multiplayer) {
+      if (player2.x < p.x + p.w && player2.x + player2.w > p.x && player2.y < p.y + p.h && player2.y + player2.h > p.y) {
+        if (p.type==='health') {
+          player2.health = Math.min(player2.maxHealth, player2.health+25);
+          game.pickups.splice(i,1); i--;
+        }
+      }
+    }
+  }
+}
+function updatePlayer() {
+  if (keys['ArrowLeft'] || keys['a'] || keys['A']) player.vx = -stats.speed;
+  else if (keys['ArrowRight'] || keys['d'] || keys['D']) player.vx = stats.speed;
+  else player.vx = 0;
+  player.x += player.vx;
+  player.y += player.vy;
+  player.vy += gravity;
+  if (player.y + player.h >= 460) {
+    player.y = 460 - player.h;
+    player.vy = 0;
+    if (!player.onGround && doubleJumpEnabled) player.jumpCount = 0;
+    player.onGround = true;
+  } else {
+    player.onGround = false;
+  }
+  if (player.x < 0) player.x = 0;
+  if (player.x + player.w > 900) player.x = 900 - player.w;
+}
+function updatePlayer2() {
+  if (!multiplayer) return;
+  if (keys['j']) player2.vx = -stats.speed;
+  else if (keys['l']) player2.vx = stats.speed;
+  else player2.vx = 0;
+  player2.x += player2.vx;
+  player2.y += player2.vy;
+  player2.vy += gravity;
+  if (player2.y + player2.h >= 460) {
+    player2.y = 460 - player2.h;
+    player2.vy = 0;
+    if (!player2.onGround && doubleJumpEnabled) player2.jumpCount = 0;
+    player2.onGround = true;
+  } else {
+    player2.onGround = false;
+  }
+  if (player2.x < 0) player2.x = 0;
+  if (player2.x + player2.w > 900) player2.x = 900 - player2.w;
+}
+function draw() {
+  ctx.clearRect(0,0,900,500);
+  ctx.fillStyle = '#333';
+  ctx.fillRect(0,460,900,40);
+  ctx.fillStyle = player.color;
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+  if (multiplayer) {
+    ctx.fillStyle = player2.color;
+    ctx.fillRect(player2.x, player2.y, player2.w, player2.h);
+  }
+  for (let obs of game.obstacles) {
+    ctx.fillStyle = obs.color;
+    ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+  }
+  for (let p of game.pickups) {
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x+p.w/2, p.y+p.h/2, p.w/2, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+function gameLoop() {
+  if (!game.running) return;
+  game.frame++;
+  if (game.frame % Math.max(60, 120 - game.level*10) === 0) spawnObstacle();
+  if (game.frame % 300 === 0) spawnPickup();
+  if (game.frame > game.nextStat) {
+    player.statPoints++;
+    game.nextStat += game.statInterval;
+    statpointsUI.style.background = '#ffd700';
+    setTimeout(()=>statpointsUI.style.background='', 200);
+  }
+  updateObstacles();
+  updatePickups();
+  updatePlayer();
+  if (multiplayer) updatePlayer2();
+  checkCollisions();
+  draw();
+  updateStatUI();
+  if (game.frame % 1200 === 0) {
+    game.level++;
+    updateModLocks();
+  }
+  if (player.health <= 0) {
+    game.running = false;
+    healthUI.textContent = '💀 0';
+    healthUI.style.background = '#ff0066';
+    ctx.fillStyle = '#ff0066';
+    ctx.font = 'bold 48px Segoe UI';
+    ctx.fillText('GAME OVER', 320, 250);
+    ctx.font = 'bold 28px Segoe UI';
+    ctx.fillText('Press R to Restart', 340, 300);
+    return;
+  }
+  requestAnimationFrame(gameLoop);
+}
+
+function tryUnlockMod(modFn, requiredLevel) {
+  if (game.level < requiredLevel) {
+    alert(`This mod unlocks at Level ${requiredLevel}!`);
+    return;
+  }
+  loadMod(modFn);
+}
+
+function restart() {
+  resetPlayer();
+  game.obstacles = [];
+  game.pickups = [];
+  game.score = 0;
+  game.level = 1;
+  game.frame = 0;
+  game.nextStat = 1000;
+  game.running = true;
+  healthUI.style.background = '';
+  statpointsUI.style.background = '';
+  updateModLocks();
+  gameLoop();
+}
+
+// --- At the end of your script ---
+resetPlayer();
+updateStatUI();
+updateModLocks();
+gameLoop();
+// --- END OF FILE ---
+  </script>
+</body>
+</html>
